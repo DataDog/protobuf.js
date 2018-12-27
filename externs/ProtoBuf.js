@@ -35,7 +35,7 @@ var ProtoBuf = {};
  * @type {string}
  * @const
  */
-ProtoBuf.VERSION = "0.9.2";
+ProtoBuf.VERSION;
 
 /**
  * @type {!object.<string,number>}
@@ -47,108 +47,90 @@ ProtoBuf.WIRE_TYPES = {};
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.VARINT = 0;
+ProtoBuf.WIRE_TYPES.VARINT;
 
 /**
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.BITS64 = 1;
+ProtoBuf.WIRE_TYPES.BITS64;
 
 /**
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.LDELIM = 2;
+ProtoBuf.WIRE_TYPES.LDELIM;
 
 /**
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.STARTGROUP = 3;
+ProtoBuf.WIRE_TYPES.STARTGROUP;
 
 /**
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.ENDGROUP = 4;
+ProtoBuf.WIRE_TYPES.ENDGROUP;
 
 /**
  * @type {number}
  * @const
  */
-ProtoBuf.WIRE_TYPES.BITS32 = 5;
+ProtoBuf.WIRE_TYPES.BITS32;
+
+/**
+ * @type {!Array.<number>}
+ * @const
+ */
+ProtoBuf.PACKABLE_WIRE_TYPES;
 
 /**
  * @type {boolean}
  */
-ProtoBuf.convertFieldsToCamelCase = false;
+ProtoBuf.convertFieldsToCamelCase;
+
+/**
+ * @type {boolean}
+ */
+ProtoBuf.populateAccessors;
 
 /**
  * @dict
  * @type {!object.<string,{name: string, wireType: number}>}
  * @const
  */
-ProtoBuf.TYPES = {
-    "int32": {
-        name: "int32",
-        wireType: ProtoBuf.WIRE_TYPES.VARINT
-    },
-    "uint32": {
-        name: "uint32",
-        wireType: ProtoBuf.WIRE_TYPES.VARINT
-    },
-    "sint32": {
-        name: "sint32",
-        wireType: ProtoBuf.WIRE_TYPES.VARINT
-    },
-    "bool": {
-        name: "bool",
-        wireType: ProtoBuf.WIRE_TYPES.VARINT
-    },
-    "double": {
-        name: "double",
-        wireType: ProtoBuf.WIRE_TYPES.BITS64
-    },
-    "string": {
-        name: "string",
-        wireType: ProtoBuf.WIRE_TYPES.LDELIM
-    },
-    "bytes": {
-        name: "bytes",
-        wireType: ProtoBuf.WIRE_TYPES.LDELIM
-    },
-    "fixed32": {
-        name: "fixed32",
-        wireType: ProtoBuf.WIRE_TYPES.BITS32
-    },
-    "sfixed32": {
-        name: "sfixed32",
-        wireType: ProtoBuf.WIRE_TYPES.BITS32
-    },
-    "float": {
-        name: "float",
-        wireType: ProtoBuf.WIRE_TYPES.BITS32
-    },
-    "enum": {
-        name: "enum",
-        wireType: ProtoBuf.WIRE_TYPES.VARINT
-    },
-    "message": {
-        name: "message",
-        wireType: ProtoBuf.WIRE_TYPES.LDELIM
-    }
-};
+ProtoBuf.TYPES;
+
+/**
+ * @type {number}
+ */
+ProtoBuf.ID_MIN;
+
+/**
+ * @type {number}
+ */
+ProtoBuf.ID_MAX;
+
+/**
+ * @type {!function(new: ByteBuffer, ...[*])}
+ */
+ProtoBuf.ByteBuffer;
+
+/**
+ * @type {?function(new: Long, ...[*])}
+ */
+ProtoBuf.Long;
 
 /**
  * @type {!object.<string,string|RegExp>}
  */
-ProtoBuf.Lang = {};
+ProtoBuf.Lang;
 
 /**
  * @type {!object.<string,function>}
  */
-ProtoBuf.DotProto = {};
+ProtoBuf.DotProto;
 
 /**
  * @param {string} proto
@@ -349,6 +331,13 @@ ProtoBuf.Reflect.Message.prototype.encode = function(message, buffer) {};
 
 /**
  * @param {!ProtoBuf.Builder.Message} message
+ * @return {number}
+ * @throws {Error}
+ */
+ProtoBuf.Reflect.Message.prototype.calculate = function(message) {};
+
+/**
+ * @param {!ProtoBuf.Builder.Message} message
  * @param {!ByteBuffer} buffer
  * @return {!ByteBuffer}
  * @throws {Error}
@@ -432,16 +421,22 @@ ProtoBuf.Reflect.Message.Field.prototype.verifyValue = function(value, skipRepea
  * @param {!ByteBuffer} buffer
  * @return {!ByteBuffer}
  * @throws {Error}
- * @nosideeffects
  */
 ProtoBuf.Reflect.Message.Field.prototype.encode = function(value, buffer) {};
+
+/**
+ * @param {*} value
+ * @return {number}
+ * @throws {Error}
+ * @nosideeffects
+ */
+ProtoBuf.Reflect.Message.Field.prototype.calculate = function(value) {};
 
 /**
  * @param {number} wireType
  * @param {!ByteBuffer} buffer
  * @return {*}
  * @throws {Error}
- * @nosideeffects
  */
 ProtoBuf.Reflect.Message.Field.prototype.decode = function(wireType, buffer) {};
 
@@ -450,7 +445,6 @@ ProtoBuf.Reflect.Message.Field.prototype.decode = function(wireType, buffer) {};
  * @param {!ByteBuffer} buffer
  * @return {!ByteBuffer}
  * @throws {Error}
- * @nosideeffects
  */
 ProtoBuf.Reflect.Message.Field.prototype.encodeValue = function(value, buffer) {};
 
@@ -729,14 +723,19 @@ ProtoBuf.Builder.Message.prototype.$get = function(key) {};
  * @param {ByteBuffer=} buffer
  * @return {!ByteBuffer}
  * @throws {Error}
- * @nosideeffects
  */
 ProtoBuf.Builder.Message.prototype.encode = function(buffer) {};
 
 /**
- * @return {!ArrayBuffer}
+ * @return {number}
  * @throws {Error}
  * @nosideeffects
+ */
+ProtoBuf.Builder.Message.prototype.calculate = function() {};
+
+/**
+ * @return {!ArrayBuffer}
+ * @throws {Error}
  */
 ProtoBuf.Builder.Message.prototype.encodeAB = function() {};
 
@@ -750,7 +749,6 @@ ProtoBuf.Builder.Message.prototype.toArrayBuffer = function() {};
 /**
  * @return {!Buffer}
  * @throws {Error}
- * @nosideeffects
  */
 ProtoBuf.Builder.Message.prototype.encodeNB = function() {};
 

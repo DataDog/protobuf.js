@@ -1,41 +1,25 @@
-// #ifdef UNDEFINED
-/*
- Copyright 2013 Daniel Wirtz <dcode@dcode.io>
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- */
-// #endif
 /**
  * @alias ProtoBuf.Builder
  * @expose
  */
 ProtoBuf.Builder = (function(ProtoBuf, Lang, Reflect) {
     "use strict";
-    
+
     /**
      * Constructs a new Builder.
      * @exports ProtoBuf.Builder
      * @class Provides the functionality to build protocol messages.
+     * @param {Object.<string,*>=} options Options
      * @constructor
      */
-    var Builder = function() {
+    var Builder = function(options) {
 
         /**
          * Namespace.
          * @type {ProtoBuf.Reflect.Namespace}
          * @expose
          */
-        this.ns = new Reflect.Namespace(null, ""); // Global namespace
+        this.ns = new Reflect.Namespace(this, null, ""); // Global namespace
 
         /**
          * Namespace pointer.
@@ -71,292 +55,268 @@ ProtoBuf.Builder = (function(ProtoBuf, Lang, Reflect) {
          * @expose
          */
         this.importRoot = null;
+
+        /**
+         * Options.
+         * @type {!Object.<string, *>}
+         * @expose
+         */
+        this.options = options || {};
     };
 
     /**
-     * Resets the pointer to the global namespace.
+     * @alias ProtoBuf.Builder.prototype
+     * @inner
+     */
+    var BuilderPrototype = Builder.prototype;
+
+    // ----- Definition tests -----
+
+    /**
+     * Tests if a definition most likely describes a message.
+     * @param {!Object} def
+     * @returns {boolean}
      * @expose
      */
-    Builder.prototype.reset = function() {
+    Builder.isMessage = function(def) {
+        // Messages require a string name
+        if (typeof def["name"] !== 'string')
+            return false;
+        // Messages do not contain values (enum) or rpc methods (service)
+        if (typeof def["values"] !== 'undefined' || typeof def["rpc"] !== 'undefined')
+            return false;
+        return true;
+    };
+
+    /**
+     * Tests if a definition most likely describes a message field.
+     * @param {!Object} def
+     * @returns {boolean}
+     * @expose
+     */
+    Builder.isMessageField = function(def) {
+        // Message fields require a string rule, name and type and an id
+        if (typeof def["rule"] !== 'string' || typeof def["name"] !== 'string' || typeof def["type"] !== 'string' || typeof def["id"] === 'undefined')
+            return false;
+        return true;
+    };
+
+    /**
+     * Tests if a definition most likely describes an enum.
+     * @param {!Object} def
+     * @returns {boolean}
+     * @expose
+     */
+    Builder.isEnum = function(def) {
+        // Enums require a string name
+        if (typeof def["name"] !== 'string')
+            return false;
+        // Enums require at least one value
+        if (typeof def["values"] === 'undefined' || !Array.isArray(def["values"]) || def["values"].length === 0)
+            return false;
+        return true;
+    };
+
+    /**
+     * Tests if a definition most likely describes a service.
+     * @param {!Object} def
+     * @returns {boolean}
+     * @expose
+     */
+    Builder.isService = function(def) {
+        // Services require a string name and an rpc object
+        if (typeof def["name"] !== 'string' || typeof def["rpc"] !== 'object' || !def["rpc"])
+            return false;
+        return true;
+    };
+
+    /**
+     * Tests if a definition most likely describes an extended message
+     * @param {!Object} def
+     * @returns {boolean}
+     * @expose
+     */
+    Builder.isExtend = function(def) {
+        // Extends rquire a string ref
+        if (typeof def["ref"] !== 'string')
+            return false;
+        return true;
+    };
+
+    // ----- Building -----
+
+    /**
+     * Resets the pointer to the root namespace.
+     * @returns {!ProtoBuf.Builder} this
+     * @expose
+     */
+    BuilderPrototype.reset = function() {
         this.ptr = this.ns;
-    };
-
-    /**
-     * Defines a package on top of the current pointer position and places the pointer on it.
-     * @param {string} pkg
-     * @param {Object.<string,*>=} options
-     * @return {ProtoBuf.Builder} this
-     * @throws {Error} If the package name is invalid
-     * @expose
-     */
-    Builder.prototype.define = function(pkg, options) {
-        if (typeof pkg !== 'string' || !Lang.TYPEREF.test(pkg)) {
-            throw(new Error("Illegal package name: "+pkg));
-        }
-        var part = pkg.split("."), i;
-        for (i=0; i<part.length; i++) { // To be absolutely sure
-            if (!Lang.NAME.test(part[i])) {
-                throw(new Error("Illegal package name: "+part[i]));
-            }
-        }
-        for (i=0; i<part.length; i++) {
-            if (!this.ptr.hasChild(part[i])) { // Keep existing namespace
-                this.ptr.addChild(new Reflect.Namespace(this.ptr, part[i], options));
-            }
-            this.ptr = this.ptr.getChild(part[i]);
-        }
         return this;
     };
 
     /**
-     * Tests if a definition is a valid message definition.
-     * @param {Object.<string,*>} def Definition
-     * @return {boolean} true if valid, else false
+     * Defines a namespace on top of the current pointer position and places the pointer on it.
+     * @param {string} namespace
+     * @return {!ProtoBuf.Builder} this
      * @expose
      */
-    Builder.isValidMessage = function(def) {
-        // Messages require a string name
-        if (typeof def["name"] !== 'string' || !Lang.NAME.test(def["name"])) {
-            return false;
-        }
-        // Messages must not contain values (that'd be an enum) or methods (that'd be a service)
-        if (typeof def["values"] !== 'undefined' || typeof def["rpc"] !== 'undefined') {
-            return false;
-        }
-        // Fields, enums and messages are arrays if provided
-        var i;
-        if (typeof def["fields"] !== 'undefined') {
-            if (!ProtoBuf.Util.isArray(def["fields"])) {
-                return false;
-            }
-            var ids = [], id; // IDs must be unique
-            for (i=0; i<def["fields"].length; i++) {
-                if (!Builder.isValidMessageField(def["fields"][i])) {
-                    return false;
-                }
-                id = parseInt(def["fields"][i]["id"], 10);
-                if (ids.indexOf(id) >= 0) {
-                    return false;
-                }
-                ids.push(id);
-            }
-            ids = null;
-        }
-        if (typeof def["enums"] !== 'undefined') {
-            if (!ProtoBuf.Util.isArray(def["enums"])) {
-                return false;
-            }
-            for (i=0; i<def["enums"].length; i++) {
-                if (!Builder.isValidEnum(def["enums"][i])) {
-                    return false;
-                }
-            }
-        }
-        if (typeof def["messages"] !== 'undefined') {
-            if (!ProtoBuf.Util.isArray(def["messages"])) {
-                return false;
-            }
-            for (i=0; i<def["messages"].length; i++) {
-                if (!Builder.isValidMessage(def["messages"][i]) && !Builder.isValidExtend(def["messages"][i])) {
-                    return false;
-                }
-            }
-        }
-        if (typeof def["extensions"] !== 'undefined') {
-            if (!ProtoBuf.Util.isArray(def["extensions"]) || def["extensions"].length !== 2 || typeof def["extensions"][0] !== 'number' || typeof def["extensions"][1] !== 'number') {
-                return false;
-            }
-        }
-        return true;
+    BuilderPrototype.define = function(namespace) {
+        if (typeof namespace !== 'string' || !Lang.TYPEREF.test(namespace))
+            throw Error("illegal namespace: "+namespace);
+        namespace.split(".").forEach(function(part) {
+            var ns = this.ptr.getChild(part);
+            if (ns === null) // Keep existing
+                this.ptr.addChild(ns = new Reflect.Namespace(this, this.ptr, part));
+            this.ptr = ns;
+        }, this);
+        return this;
     };
 
     /**
-     * Tests if a definition is a valid message field definition.
-     * @param {Object} def Definition
-     * @return {boolean} true if valid, else false
-     * @expose
-     */
-    Builder.isValidMessageField = function(def) {
-        // Message fields require a string rule, name and type and an id
-        if (typeof def["rule"] !== 'string' || typeof def["name"] !== 'string' || typeof def["type"] !== 'string' || typeof def["id"] === 'undefined') {
-            return false;
-        }
-        if (!Lang.RULE.test(def["rule"]) || !Lang.NAME.test(def["name"]) || !Lang.TYPEREF.test(def["type"]) || !Lang.ID.test(""+def["id"])) {
-            return false;
-        }
-        if (typeof def["options"] != 'undefined') {
-            // Options are objects
-            if (typeof def["options"] != 'object') {
-                return false;
-            }
-            // Options are <string,*>
-            var keys = Object.keys(def["options"]);
-            for (var i=0; i<keys.length; i++) {
-                if (!Lang.OPTNAME.test(keys[i]) || (typeof def["options"][keys[i]] !== 'string' && typeof def["options"][keys[i]] !== 'number' && typeof def["options"][keys[i]] !== 'boolean')) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    };
-
-    /**
-     * Tests if a definition is a valid enum definition.
-     * @param {Object} def Definition
-     * @return {boolean} true if valid, else false
-     * @expose
-     */
-    Builder.isValidEnum = function(def) {
-        // Enums require a string name
-        if (typeof def["name"] !== 'string' || !Lang.NAME.test(def["name"])) {
-            return false;
-        }
-        // Enums require at least one value
-        if (typeof def["values"] === 'undefined' || !ProtoBuf.Util.isArray(def["values"]) || def["values"].length == 0) {
-            return false;
-        }
-        for (var i=0; i<def["values"].length; i++) {
-            // Values are objects
-            if (typeof def["values"][i] != "object") {
-                return false;
-            }
-            // Values require a string name and an id
-            if (typeof def["values"][i]["name"] !== 'string' || typeof def["values"][i]["id"] === 'undefined') {
-                return false;
-            }
-            if (!Lang.NAME.test(def["values"][i]["name"]) || !Lang.NEGID.test(""+def["values"][i]["id"])) {
-                return false;
-            }
-        }
-        // It's not important if there are other fields because ["values"] is already unique
-        return true;
-    };
-
-    /**
-     * Creates ths specified protocol types at the current pointer position.
-     * @param {Array.<Object.<string,*>>} defs Messages, enums or services to create
-     * @return {ProtoBuf.Builder} this
+     * Creates the specified definitions at the current pointer position.
+     * @param {!Array.<!Object>} defs Messages, enums or services to create
+     * @returns {!ProtoBuf.Builder} this
      * @throws {Error} If a message definition is invalid
      * @expose
      */
-    Builder.prototype.create = function(defs) {
-        if (!defs) return; // Nothing to create
-        if (!ProtoBuf.Util.isArray(defs)) {
+    BuilderPrototype.create = function(defs) {
+        if (!defs)
+            return this; // Nothing to create
+        if (!Array.isArray(defs))
             defs = [defs];
+        else {
+            if (defs.length === 0)
+                return this;
+            defs = defs.slice();
         }
-        if (defs.length == 0) return;
-        
+
         // It's quite hard to keep track of scopes and memory here, so let's do this iteratively.
-        var stack = [], def, obj, subObj, i, j;
-        stack.push(defs); // One level [a, b, c]
+        var stack = [defs];
         while (stack.length > 0) {
             defs = stack.pop();
-            if (ProtoBuf.Util.isArray(defs)) { // Stack always contains entire namespaces
-                while (defs.length > 0) {
-                    def = defs.shift(); // Namespace always contains an array of messages, enums and services
-                    if (Builder.isValidMessage(def)) {
-                        obj = new Reflect.Message(this.ptr, def["name"], def["options"]);
-                        // Create fields
-                        if (def["fields"] && def["fields"].length > 0) {
-                            for (i=0; i<def["fields"].length; i++) { // i=Fields
-                                if (obj.hasChild(def['fields'][i]['id'])) {
-                                    throw(new Error("Duplicate field id in message "+obj.name+": "+def['fields'][i]['id']));
-                                }
-                                if (def["fields"][i]["options"]) {
-                                    subObj = Object.keys(def["fields"][i]["options"]);
-                                    for (j=0; j<subObj.length; j++) { // j=Option names
-                                        if (!Lang.OPTNAME.test(subObj[j])) {
-                                            throw(new Error("Illegal field option name in message "+obj.name+"#"+def["fields"][i]["name"]+": "+subObj[j]));
-                                        }
-                                        if (typeof def["fields"][i]["options"][subObj[j]] !== 'string' && typeof def["fields"][i]["options"][subObj[j]] !== 'number' && typeof def["fields"][i]["options"][subObj[j]] !== 'boolean') {
-                                            throw(new Error("Illegal field option value in message "+obj.name+"#"+def["fields"][i]["name"]+"#"+subObj[j]+": "+def["fields"][i]["options"][subObj[j]]));
-                                        }
-                                    }
-                                    subObj = null;
-                                }
-                                obj.addChild(new Reflect.Message.Field(obj, def["fields"][i]["rule"], def["fields"][i]["type"], def["fields"][i]["name"], def["fields"][i]["id"], def["fields"][i]["options"]));
-                            }
-                        }
-                        // Push enums and messages to stack
-                        subObj = [];
-                        if (typeof def["enums"] !== 'undefined' && def['enums'].length > 0) {
-                            for (i=0; i<def["enums"].length; i++) {
-                                subObj.push(def["enums"][i]);
-                            }
-                        }
-                        if (def["messages"] && def["messages"].length > 0) {
-                            for (i=0; i<def["messages"].length; i++) {
-                                subObj.push(def["messages"][i]);
-                            }
-                        }
-                        // Set extension range
-                        if (def["extensions"]) {
-                            obj.extensions = def["extensions"];
-                            if (obj.extensions[0] < ProtoBuf.Lang.ID_MIN) {
-                                obj.extensions[0] = ProtoBuf.Lang.ID_MIN;
-                            }
-                            if (obj.extensions[1] > ProtoBuf.Lang.ID_MAX) {
-                                obj.extensions[1] = ProtoBuf.Lang.ID_MAX;
-                            }
-                        }
-                        this.ptr.addChild(obj); // Add to current namespace
-                        if (subObj.length > 0) {
-                            stack.push(defs); // Push the current level back
-                            defs = subObj; // Continue processing sub level
-                            subObj = null;
-                            this.ptr = obj; // And move the pointer to this namespace
-                            obj = null;
-                            continue;
-                        }
-                        subObj = null;
-                        obj = null;
-                    } else if (Builder.isValidEnum(def)) {
-                        obj = new Reflect.Enum(this.ptr, def["name"], def["options"]);
-                        for (i=0; i<def["values"].length; i++) {
-                            obj.addChild(new Reflect.Enum.Value(obj, def["values"][i]["name"], def["values"][i]["id"]));
-                        }
-                        this.ptr.addChild(obj);
-                        obj = null;
-                    } else if (Builder.isValidService(def)) {
-                        obj = new Reflect.Service(this.ptr, def["name"], def["options"]);
-                        for (i in def["rpc"]) {
-                            if (def["rpc"].hasOwnProperty(i)) {
-                                obj.addChild(new Reflect.Service.RPCMethod(obj, i, def["rpc"][i]["request"], def["rpc"][i]["response"], def["rpc"][i]["options"]));
-                            }
-                        }
-                        this.ptr.addChild(obj);
-                        obj = null;
-                    } else if (Builder.isValidExtend(def)) {
-                        obj = this.ptr.resolve(def["ref"]);
-                        if (obj) {
-                            for (i=0; i<def["fields"].length; i++) { // i=Fields
-                                if (obj.hasChild(def['fields'][i]['id'])) {
-                                    throw(new Error("Duplicate extended field id in message "+obj.name+": "+def['fields'][i]['id']));
-                                }
-                                if (def['fields'][i]['id'] < obj.extensions[0] || def['fields'][i]['id'] > obj.extensions[1]) {
-                                    throw(new Error("Illegal extended field id in message "+obj.name+": "+def['fields'][i]['id']+" ("+obj.extensions.join(' to ')+" expected)"));
-                                }
-                                obj.addChild(new Reflect.Message.Field(obj, def["fields"][i]["rule"], def["fields"][i]["type"], def["fields"][i]["name"], def["fields"][i]["id"], def["fields"][i]["options"]));
-                            }
-                            /* if (this.ptr instanceof Reflect.Message) {
-                                this.ptr.addChild(obj); // Reference the extended message here to enable proper lookups
-                            } */
-                        } else {
-                            if (!/\.?google\.protobuf\./.test(def["ref"])) { // Silently skip internal extensions
-                                throw(new Error("Extended message "+def["ref"]+" is not defined"));
-                            }
-                        }
-                    } else {
-                        throw(new Error("Not a valid message, enum, service or extend definition: "+JSON.stringify(def)));
+
+            if (!Array.isArray(defs)) // Stack always contains entire namespaces
+                throw Error("not a valid namespace: "+JSON.stringify(defs));
+
+            while (defs.length > 0) {
+                var def = defs.shift(); // Namespaces always contain an array of messages, enums and services
+
+                if (Builder.isMessage(def)) {
+                    var obj = new Reflect.Message(this, this.ptr, def["name"], def["options"], def["isGroup"], def["syntax"]);
+
+                    // Create OneOfs
+                    var oneofs = {};
+                    if (def["oneofs"])
+                        Object.keys(def["oneofs"]).forEach(function(name) {
+                            obj.addChild(oneofs[name] = new Reflect.Message.OneOf(this, obj, name));
+                        }, this);
+
+                    // Create fields
+                    if (def["fields"])
+                        def["fields"].forEach(function(fld) {
+                            if (obj.getChild(fld["id"]|0) !== null)
+                                throw Error("duplicate or invalid field id in "+obj.name+": "+fld['id']);
+                            if (fld["options"] && typeof fld["options"] !== 'object')
+                                throw Error("illegal field options in "+obj.name+"#"+fld["name"]);
+                            var oneof = null;
+                            if (typeof fld["oneof"] === 'string' && !(oneof = oneofs[fld["oneof"]]))
+                                throw Error("illegal oneof in "+obj.name+"#"+fld["name"]+": "+fld["oneof"]);
+                            fld = new Reflect.Message.Field(this, obj, fld["rule"], fld["keytype"], fld["type"], fld["name"], fld["id"], fld["options"], oneof, def["syntax"]);
+                            if (oneof)
+                                oneof.fields.push(fld);
+                            obj.addChild(fld);
+                        }, this);
+
+                    // Push children to stack
+                    var subObj = [];
+                    if (def["enums"])
+                        def["enums"].forEach(function(enm) {
+                            subObj.push(enm);
+                        });
+                    if (def["messages"])
+                        def["messages"].forEach(function(msg) {
+                            subObj.push(msg);
+                        });
+                    if (def["services"])
+                        def["services"].forEach(function(svc) {
+                            subObj.push(svc);
+                        });
+
+                    // Set extension range
+                    if (def["extensions"]) {
+                        obj.extensions = def["extensions"];
+                        if (obj.extensions[0] < ProtoBuf.ID_MIN)
+                            obj.extensions[0] = ProtoBuf.ID_MIN;
+                        if (obj.extensions[1] > ProtoBuf.ID_MAX)
+                            obj.extensions[1] = ProtoBuf.ID_MAX;
                     }
-                    def = null;
-                }
-                // Break goes here
-            } else {
-                throw(new Error("Not a valid namespace definition: "+JSON.stringify(defs)));
+
+                    // Create on top of current namespace
+                    this.ptr.addChild(obj);
+                    if (subObj.length > 0) {
+                        stack.push(defs); // Push the current level back
+                        defs = subObj; // Continue processing sub level
+                        subObj = null;
+                        this.ptr = obj; // And move the pointer to this namespace
+                        obj = null;
+                        continue;
+                    }
+                    subObj = null;
+
+                } else if (Builder.isEnum(def)) {
+
+                    obj = new Reflect.Enum(this, this.ptr, def["name"], def["options"], def["syntax"]);
+                    def["values"].forEach(function(val) {
+                        obj.addChild(new Reflect.Enum.Value(this, obj, val["name"], val["id"]));
+                    }, this);
+                    this.ptr.addChild(obj);
+
+                } else if (Builder.isService(def)) {
+
+                    obj = new Reflect.Service(this, this.ptr, def["name"], def["options"]);
+                    Object.keys(def["rpc"]).forEach(function(name) {
+                        var mtd = def["rpc"][name];
+                        obj.addChild(new Reflect.Service.RPCMethod(this, obj, name, mtd["request"], mtd["response"], !!mtd["request_stream"], !!mtd["response_stream"], mtd["options"]));
+                    }, this);
+                    this.ptr.addChild(obj);
+
+                } else if (Builder.isExtend(def)) {
+
+                    obj = this.ptr.resolve(def["ref"], true);
+                    if (obj) {
+                        def["fields"].forEach(function(fld) {
+                            if (obj.getChild(fld['id']|0) !== null)
+                                throw Error("duplicate extended field id in "+obj.name+": "+fld['id']);
+                            if (fld['id'] < obj.extensions[0] || fld['id'] > obj.extensions[1])
+                                throw Error("illegal extended field id in "+obj.name+": "+fld['id']+" ("+obj.extensions.join(' to ')+" expected)");
+                            // Convert extension field names to camel case notation if the override is set
+                            var name = fld["name"];
+                            if (this.options['convertFieldsToCamelCase'])
+                                name = ProtoBuf.Util.toCamelCase(name);
+                            // see #161: Extensions use their fully qualified name as their runtime key and...
+                            var field = new Reflect.Message.ExtensionField(this, obj, fld["rule"], fld["type"], this.ptr.fqn()+'.'+name, fld["id"], fld["options"]);
+                            // ...are added on top of the current namespace as an extension which is used for
+                            // resolving their type later on (the extension always keeps the original name to
+                            // prevent naming collisions)
+                            var ext = new Reflect.Extension(this, this.ptr, fld["name"], field);
+                            field.extension = ext;
+                            this.ptr.addChild(ext);
+                            obj.addChild(field);
+                        }, this);
+
+                    } else if (!/\.?google\.protobuf\./.test(def["ref"])) // Silently skip internal extensions
+                        throw Error("extended message "+def["ref"]+" is not defined");
+
+                } else
+                    throw Error("not a valid definition: "+JSON.stringify(def));
+
+                def = null;
+                obj = null;
             }
+            // Break goes here
             defs = null;
-            this.ptr = this.ptr.parent; // This namespace is s done
+            this.ptr = this.ptr.parent; // Namespace done, continue at parent
         }
         this.resolved = false; // Require re-resolve
         this.result = null; // Require re-build
@@ -364,264 +324,258 @@ ProtoBuf.Builder = (function(ProtoBuf, Lang, Reflect) {
     };
 
     /**
-     * Tests if the specified file is a valid import.
-     * @param {string} filename
-     * @returns {boolean} true if valid, false if it should be skipped
-     * @expose
+     * Propagates syntax to all children.
+     * @param {!Object} parent
+     * @inner
      */
-    Builder.isValidImport = function(filename) {
-        // Ignore google/protobuf/descriptor.proto (for example) as it makes use of low-level
-        // bootstrapping directives that are not required and therefore cannot be parsed by ProtoBuf.js.
-        return !(/google\/protobuf\//.test(filename));
-    };
+    function propagateSyntax(parent) {
+        if (parent['messages']) {
+            parent['messages'].forEach(function(child) {
+                child["syntax"] = parent["syntax"];
+                propagateSyntax(child);
+            });
+        }
+        if (parent['enums']) {
+            parent['enums'].forEach(function(child) {
+                child["syntax"] = parent["syntax"];
+            });
+        }
+    }
 
     /**
      * Imports another definition into this builder.
      * @param {Object.<string,*>} json Parsed import
      * @param {(string|{root: string, file: string})=} filename Imported file name
-     * @return {ProtoBuf.Builder} this
+     * @returns {!ProtoBuf.Builder} this
      * @throws {Error} If the definition or file cannot be imported
      * @expose
      */
-    Builder.prototype["import"] = function(json, filename) {
+    BuilderPrototype["import"] = function(json, filename) {
+        var delim = '/';
+
+        // Make sure to skip duplicate imports
+
         if (typeof filename === 'string') {
-            if (ProtoBuf.Util.IS_NODE) {
-                var path = require("path");
-                filename = path.resolve(filename);
-            }
-            if (!!this.files[filename]) {
-                this.reset();
-                return this; // Skip duplicate imports
-            }
+
+            if (ProtoBuf.Util.IS_NODE)
+                filename = require("path")['resolve'](filename);
+            if (this.files[filename] === true)
+                return this.reset();
             this.files[filename] = true;
+
+        } else if (typeof filename === 'object') { // Object with root, file.
+
+            var root = filename.root;
+            if (ProtoBuf.Util.IS_NODE)
+                root = require("path")['resolve'](root);
+            if (root.indexOf("\\") >= 0 || filename.file.indexOf("\\") >= 0)
+                delim = '\\';
+            var fname = root + delim + filename.file;
+            if (this.files[fname] === true)
+                return this.reset();
+            this.files[fname] = true;
         }
-        if (!!json['imports'] && json['imports'].length > 0) {
-            var importRoot, delim = '/', resetRoot = false;
+
+        // Import imports
+
+        if (json['imports'] && json['imports'].length > 0) {
+            var importRoot,
+                resetRoot = false;
+
             if (typeof filename === 'object') { // If an import root is specified, override
+
                 this.importRoot = filename["root"]; resetRoot = true; // ... and reset afterwards
                 importRoot = this.importRoot;
                 filename = filename["file"];
-                if (importRoot.indexOf("\\") >= 0 || filename.indexOf("\\") >= 0) delim = '\\';
+                if (importRoot.indexOf("\\") >= 0 || filename.indexOf("\\") >= 0)
+                    delim = '\\';
+
             } else if (typeof filename === 'string') {
-                if (this.importRoot) { // If import root is overridden, use it
+
+                if (this.importRoot) // If import root is overridden, use it
                     importRoot = this.importRoot;
-                } else { // Otherwise compute from filename
+                else { // Otherwise compute from filename
                     if (filename.indexOf("/") >= 0) { // Unix
                         importRoot = filename.replace(/\/[^\/]*$/, "");
-                        if (/* /file.proto */ importRoot === "") importRoot = "/";
+                        if (/* /file.proto */ importRoot === "")
+                            importRoot = "/";
                     } else if (filename.indexOf("\\") >= 0) { // Windows
-                        importRoot = filename.replace(/\\[^\\]*$/, ""); delim = '\\';
-                    } else {
+                        importRoot = filename.replace(/\\[^\\]*$/, "");
+                        delim = '\\';
+                    } else
                         importRoot = ".";
-                    }
                 }
-            } else {
+
+            } else
                 importRoot = null;
-            }
 
             for (var i=0; i<json['imports'].length; i++) {
                 if (typeof json['imports'][i] === 'string') { // Import file
-                    if (!importRoot) {
-                        throw(new Error("Cannot determine import root: File name is unknown"));
-                    }
-                    var importFilename = importRoot+delim+json['imports'][i];
-                    if (!Builder.isValidImport(importFilename)) continue; // e.g. google/protobuf/*
-                    if (/\.proto$/i.test(importFilename) && !ProtoBuf.DotProto) {     // If this is a NOPARSE build
+                    if (!importRoot)
+                        throw Error("cannot determine import root");
+                    var importFilename = json['imports'][i];
+                    if (importFilename === "google/protobuf/descriptor.proto")
+                        continue; // Not needed and therefore not used
+                    importFilename = importRoot + delim + importFilename;
+                    if (this.files[importFilename] === true)
+                        continue; // Already imported
+                    if (/\.proto$/i.test(importFilename) && !ProtoBuf.DotProto)       // If this is a light build
                         importFilename = importFilename.replace(/\.proto$/, ".json"); // always load the JSON file
-                    }
                     var contents = ProtoBuf.Util.fetch(importFilename);
-                    if (contents === null) {
-                        throw(new Error("Failed to import '"+importFilename+"' in '"+filename+"': File not found"));
-                    }
-                    if (/\.json$/i.test(importFilename)) { // Always possible
+                    if (contents === null)
+                        throw Error("failed to import '"+importFilename+"' in '"+filename+"': file not found");
+                    if (/\.json$/i.test(importFilename)) // Always possible
                         this["import"](JSON.parse(contents+""), importFilename); // May throw
-                    } else {
-                        this["import"]((new ProtoBuf.DotProto.Parser(contents+"")).parse(), importFilename); // May throw
-                    }
-                } else { // Import structure
-                    if (!filename) {
+                    else
+                        this["import"](ProtoBuf.DotProto.Parser.parse(contents), importFilename); // May throw
+                } else // Import structure
+                    if (!filename)
                         this["import"](json['imports'][i]);
-                    } else if (/\.(\w+)$/.test(filename)) { // With extension: Append _importN to the name portion to make it unique
+                    else if (/\.(\w+)$/.test(filename)) // With extension: Append _importN to the name portion to make it unique
                         this["import"](json['imports'][i], filename.replace(/^(.+)\.(\w+)$/, function($0, $1, $2) { return $1+"_import"+i+"."+$2; }));
-                    } else { // Without extension: Append _importN to make it unique
+                    else // Without extension: Append _importN to make it unique
                         this["import"](json['imports'][i], filename+"_import"+i);
-                    }
-                }
             }
-            if (resetRoot) { // Reset import root override when all imports are done
+            if (resetRoot) // Reset import root override when all imports are done
                 this.importRoot = null;
-            }
         }
-        if (!!json['messages']) {
-            if (!!json['package']) this.define(json['package'], json["options"]);
-            this.create(json['messages']);
-            this.reset();
-        }
-        if (!!json['enums']) {
-            if (!!json['package']) this.define(json['package'], json["options"]);
-            this.create(json['enums']);
-            this.reset();
-        }
-        if (!!json['services']) {
-            if (!!json['package']) this.define(json['package'], json["options"]);
-            this.create(json['services']);
-            this.reset();
-        }
-        if (!!json['extends']) {
-            if (!!json['package']) this.define(json['package'], json["options"]);
+
+        // Import structures
+
+        if (json['package'])
+            this.define(json['package']);
+        if (json['syntax'])
+            propagateSyntax(json);
+        var base = this.ptr;
+        if (json['options'])
+            Object.keys(json['options']).forEach(function(key) {
+                base.options[key] = json['options'][key];
+            });
+        if (json['messages'])
+            this.create(json['messages']),
+            this.ptr = base;
+        if (json['enums'])
+            this.create(json['enums']),
+            this.ptr = base;
+        if (json['services'])
+            this.create(json['services']),
+            this.ptr = base;
+        if (json['extends'])
             this.create(json['extends']);
-            this.reset();
-        }
-        return this;
-    };
 
-    /**
-     * Tests if a definition is a valid service definition.
-     * @param {Object} def Definition
-     * @return {boolean} true if valid, else false
-     * @expose
-     */
-    Builder.isValidService = function(def) {
-        // Services require a string name
-        if (typeof def["name"] !== 'string' || !Lang.NAME.test(def["name"]) || typeof def["rpc"] !== 'object') {
-            return false;
-        }
-        return true;
-    };
-
-    /**
-     * Tests if a definition is a valid extension.
-     * @param {Object} def Definition
-     * @returns {boolean} true if valid, else false
-     * @expose
-    */
-    Builder.isValidExtend = function(def) {
-        if (typeof def["ref"] !== 'string' || !Lang.TYPEREF.test(def["name"])) {
-            return false;
-        }
-        var i;
-        if (typeof def["fields"] !== 'undefined') {
-            if (!ProtoBuf.Util.isArray(def["fields"])) {
-                return false;
-            }
-            var ids = [], id; // IDs must be unique (does not yet test for the extended message's ids)
-            for (i=0; i<def["fields"].length; i++) {
-                if (!Builder.isValidMessageField(def["fields"][i])) {
-                    return false;
-                }
-                id = parseInt(def["id"], 10);
-                if (ids.indexOf(id) >= 0) {
-                    return false;
-                }
-                ids.push(id);
-            }
-            ids = null;
-        }
-        return true;
+        return this.reset();
     };
 
     /**
      * Resolves all namespace objects.
      * @throws {Error} If a type cannot be resolved
+     * @returns {!ProtoBuf.Builder} this
      * @expose
      */
-    Builder.prototype.resolveAll = function() {
+    BuilderPrototype.resolveAll = function() {
         // Resolve all reflected objects
         var res;
-        if (this.ptr == null || typeof this.ptr.type === 'object') return; // Done (already resolved)
-        if (this.ptr instanceof Reflect.Namespace) {
-            // Build all children
-            var children = this.ptr.getChildren();
-            for (var i=0; i<children.length; i++) {
-                this.ptr = children[i];
+        if (this.ptr == null || typeof this.ptr.type === 'object')
+            return this; // Done (already resolved)
+
+        if (this.ptr instanceof Reflect.Namespace) { // Resolve children
+
+            this.ptr.children.forEach(function(child) {
+                this.ptr = child;
                 this.resolveAll();
-            }
-        } else if (this.ptr instanceof Reflect.Message.Field) {
-            if (!Lang.TYPE.test(this.ptr.type)) { // Resolve type...
-                if (!Lang.TYPEREF.test(this.ptr.type)) {
-                    throw(new Error("Illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.type));
-                }
-                res = this.ptr.parent.resolve(this.ptr.type, true);
-                if (!res) {
-                    throw(new Error("Unresolvable type reference in "+this.ptr.toString(true)+": "+this.ptr.type));
-                }
+            }, this);
+
+        } else if (this.ptr instanceof Reflect.Message.Field) { // Resolve type
+
+            if (!Lang.TYPE.test(this.ptr.type)) {
+                if (!Lang.TYPEREF.test(this.ptr.type))
+                    throw Error("illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.type);
+                res = (this.ptr instanceof Reflect.Message.ExtensionField ? this.ptr.extension.parent : this.ptr.parent).resolve(this.ptr.type, true);
+                if (!res)
+                    throw Error("unresolvable type reference in "+this.ptr.toString(true)+": "+this.ptr.type);
                 this.ptr.resolvedType = res;
                 if (res instanceof Reflect.Enum) {
                     this.ptr.type = ProtoBuf.TYPES["enum"];
-                } else if (res instanceof Reflect.Message) {
-                    this.ptr.type = ProtoBuf.TYPES["message"];
-                } else {
-                    throw(new Error("Illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.type));
+                    if (this.ptr.syntax === 'proto3' && res.syntax !== 'proto3')
+                        throw Error("proto3 message cannot reference proto2 enum");
                 }
-            } else {
+                else if (res instanceof Reflect.Message)
+                    this.ptr.type = res.isGroup ? ProtoBuf.TYPES["group"] : ProtoBuf.TYPES["message"];
+                else
+                    throw Error("illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.type);
+            } else
                 this.ptr.type = ProtoBuf.TYPES[this.ptr.type];
+
+            // If it's a map field, also resolve the key type. The key type can be only a numeric, string, or bool type
+            // (i.e., no enums or messages), so we don't need to resolve against the current namespace.
+            if (this.ptr.map) {
+                if (!Lang.TYPE.test(this.ptr.keyType))
+                    throw Error("illegal key type for map field in "+this.ptr.toString(true)+": "+this.ptr.keyType);
+                this.ptr.keyType = ProtoBuf.TYPES[this.ptr.keyType];
             }
-        } else if (this.ptr instanceof ProtoBuf.Reflect.Enum.Value) {
-            // No need to build enum values (built in enum)
+
         } else if (this.ptr instanceof ProtoBuf.Reflect.Service.Method) {
+
             if (this.ptr instanceof ProtoBuf.Reflect.Service.RPCMethod) {
-                res = this.ptr.parent.resolve(this.ptr.requestName);
-                if (!res || !(res instanceof ProtoBuf.Reflect.Message)) {
-                    throw(new Error("Illegal request type reference in "+this.ptr.toString(true)+": "+this.ptr.requestName));
-                }
+                res = this.ptr.parent.resolve(this.ptr.requestName, true);
+                if (!res || !(res instanceof ProtoBuf.Reflect.Message))
+                    throw Error("Illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.requestName);
                 this.ptr.resolvedRequestType = res;
-                res = this.ptr.parent.resolve(this.ptr.responseName);
-                if (!res || !(res instanceof ProtoBuf.Reflect.Message)) {
-                    throw(new Error("Illegal response type reference in "+this.ptr.toString(true)+": "+this.ptr.responseName));
-                }
+                res = this.ptr.parent.resolve(this.ptr.responseName, true);
+                if (!res || !(res instanceof ProtoBuf.Reflect.Message))
+                    throw Error("Illegal type reference in "+this.ptr.toString(true)+": "+this.ptr.responseName);
                 this.ptr.resolvedResponseType = res;
-            } else {
-                // Should not happen as nothing else is implemented
-                throw(new Error("Illegal service method type in "+this.ptr.toString(true)));
-            }
-        } else {
-            throw(new Error("Illegal object type in namespace: "+typeof(this.ptr)+":"+this.ptr));
-        }
-        this.reset();
+            } else // Should not happen as nothing else is implemented
+                throw Error("illegal service type in "+this.ptr.toString(true));
+
+        } else if (
+            !(this.ptr instanceof ProtoBuf.Reflect.Message.OneOf) && // Not built
+            !(this.ptr instanceof ProtoBuf.Reflect.Extension) && // Not built
+            !(this.ptr instanceof ProtoBuf.Reflect.Enum.Value) // Built in enum
+        )
+            throw Error("illegal object in namespace: "+typeof(this.ptr)+": "+this.ptr);
+
+        return this.reset();
     };
 
     /**
      * Builds the protocol. This will first try to resolve all definitions and, if this has been successful,
      * return the built package.
-     * @param {string=} path Specifies what to return. If omitted, the entire namespace will be returned.
-     * @return {ProtoBuf.Builder.Message|Object.<string,*>}
+     * @param {(string|Array.<string>)=} path Specifies what to return. If omitted, the entire namespace will be returned.
+     * @returns {!ProtoBuf.Builder.Message|!Object.<string,*>}
      * @throws {Error} If a type could not be resolved
      * @expose
      */
-    Builder.prototype.build = function(path) {
+    BuilderPrototype.build = function(path) {
         this.reset();
-        if (!this.resolved) {
-            this.resolveAll();
-            this.resolved = true;
+        if (!this.resolved)
+            this.resolveAll(),
+            this.resolved = true,
             this.result = null; // Require re-build
-        }
-        if (this.result == null) { // (Re-)Build
+        if (this.result === null) // (Re-)Build
             this.result = this.ns.build();
-        }
-        if (!path) {
+        if (!path)
             return this.result;
-        } else {
-            var part = path.split(".");
-            var ptr = this.result; // Build namespace pointer (no hasChild etc.)
-            for (var i=0; i<part.length; i++) {
-                if (ptr[part[i]]) {
-                    ptr = ptr[part[i]];
-                } else {
-                    ptr = null;
-                    break;
-                }
+        var part = typeof path === 'string' ? path.split(".") : path,
+            ptr = this.result; // Build namespace pointer (no hasChild etc.)
+        for (var i=0; i<part.length; i++)
+            if (ptr[part[i]])
+                ptr = ptr[part[i]];
+            else {
+                ptr = null;
+                break;
             }
-            return ptr;
-        }
+        return ptr;
     };
 
     /**
      * Similar to {@link ProtoBuf.Builder#build}, but looks up the internal reflection descriptor.
      * @param {string=} path Specifies what to return. If omitted, the entire namespace wiil be returned.
-     * @return {ProtoBuf.Reflect.T} Reflection descriptor or `null` if not found
+     * @param {boolean=} excludeNonNamespace Excludes non-namespace types like fields, defaults to `false`
+     * @returns {?ProtoBuf.Reflect.T} Reflection descriptor or `null` if not found
      */
-    Builder.prototype.lookup = function(path) {
-        return path ? this.ns.resolve(path) : this.ns;
+    BuilderPrototype.lookup = function(path, excludeNonNamespace) {
+        return path ? this.ns.resolve(path, excludeNonNamespace) : this.ns;
     };
 
     /**
@@ -629,15 +583,28 @@ ProtoBuf.Builder = (function(ProtoBuf, Lang, Reflect) {
      * @return {string} String representation as of "Builder"
      * @expose
      */
-    Builder.prototype.toString = function() {
+    BuilderPrototype.toString = function() {
         return "Builder";
     };
 
-    // Pseudo types documented in Reflect.js.
+    // ----- Base classes -----
     // Exist for the sole purpose of being able to "... instanceof ProtoBuf.Builder.Message" etc.
+
+    /**
+     * @alias ProtoBuf.Builder.Message
+     */
     Builder.Message = function() {};
+
+    /**
+     * @alias ProtoBuf.Builder.Enum
+     */
+    Builder.Enum = function() {};
+
+    /**
+     * @alias ProtoBuf.Builder.Message
+     */
     Builder.Service = function() {};
-    
+
     return Builder;
-    
+
 })(ProtoBuf, ProtoBuf.Lang, ProtoBuf.Reflect);

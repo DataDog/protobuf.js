@@ -1,27 +1,33 @@
-// #ifdef UNDEFINED
-/*
- Copyright 2013 Daniel Wirtz <dcode@dcode.io>
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- */
-// #endif
 /**
- * Utilities to parse .proto files.
- * @namespace
+ * @alias ProtoBuf.DotProto
  * @expose
  */
-ProtoBuf.DotProto = {}; // Not present in "noparse" builds
+ProtoBuf.DotProto = (function(ProtoBuf, Lang) {
+    "use strict";
 
-// #include "ProtoBuf/DotProto/Tokenizer.js"
+    /**
+     * Utilities to parse .proto files.
+     * @exports ProtoBuf.DotProto
+     * @namespace
+     */
+    var DotProto = {};
+    
+    //? include("DotProto/Tokenizer.js");
 
-// #include "ProtoBuf/DotProto/Parser.js"
+    /**
+     * @alias ProtoBuf.DotProto.Tokenizer
+     * @expose
+     */
+    DotProto.Tokenizer = Tokenizer;
+    
+    //? include("DotProto/Parser.js");
+
+    /**
+     * @alias ProtoBuf.DotProto.Parser
+     * @expose
+     */
+    DotProto.Parser = Parser;
+    
+    return DotProto;
+    
+})(ProtoBuf, ProtoBuf.Lang);

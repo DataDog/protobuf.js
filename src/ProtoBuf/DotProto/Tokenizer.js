@@ -1,195 +1,190 @@
-// #ifdef UNDEFINED
-/*
- Copyright 2013 Daniel Wirtz <dcode@dcode.io>
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- */
-// #endif
+/*?
+ // --- Scope -----------------
+ // Lang : Language expressions
+*/
 /**
- * @alias ProtoBuf.DotProto.Tokenizer
- * @expose
+ * Constructs a new Tokenizer.
+ * @exports ProtoBuf.DotProto.Tokenizer
+ * @class prototype tokenizer
+ * @param {string} proto Proto to tokenize
+ * @constructor
  */
-ProtoBuf.DotProto.Tokenizer = (function(Lang) {
+var Tokenizer = function(proto) {
 
     /**
-     * Constructs a new Tokenizer.
-     * @exports ProtoBuf.DotProto.Tokenizer
-     * @class A ProtoBuf .proto Tokenizer.
-     * @param {string} proto Proto to tokenize
-     * @constructor
+     * Source to parse.
+     * @type {string}
+     * @expose
      */
-    var Tokenizer = function(proto) {
-        
-        /**
-         * Source to parse.
-         * @type {string}
-         * @expose
-         */
-        this.source = ""+proto;
-        
-        /**
-         * Current index.
-         * @type {number}
-         * @expose
-         */
-        this.index = 0;
-
-        /**
-         * Current line.
-         * @type {number}
-         * @expose
-         */
-        this.line = 1;
-
-        /**
-         * Stacked values.
-         * @type {Array}
-         * @expose
-         */
-        this.stack = [];
-
-        /**
-         * Whether currently reading a string or not.
-         * @type {boolean}
-         * @expose
-         */
-        this.readingString = false;
-
-        /**
-         * Whatever character ends the string. Either a single or double quote character.
-         * @type {string}
-         * @expose
-         */
-        this.stringEndsWith = Lang.STRINGCLOSE;
-    };
+    this.source = proto+"";
 
     /**
-     * Reads a string beginning at the current index.
-     * @return {string} The string
-     * @throws {Error} If it's not a valid string
+     * Current index.
+     * @type {number}
+     * @expose
+     */
+    this.index = 0;
+
+    /**
+     * Current line.
+     * @type {number}
+     * @expose
+     */
+    this.line = 1;
+
+    /**
+     * Token stack.
+     * @type {!Array.<string>}
+     * @expose
+     */
+    this.stack = [];
+
+    /**
+     * Opening character of the current string read, if any.
+     * @type {?string}
      * @private
      */
-    Tokenizer.prototype._readString = function() {
-        Lang.STRING.lastIndex = this.index-1; // Include the open quote
-        var match;
-        if ((match = Lang.STRING.exec(this.source)) !== null) {
-            var s = match[1];
-            this.index = Lang.STRING.lastIndex;
-            this.stack.push(this.stringEndsWith);
-            return s;
-        }
-        throw(new Error("Illegal string value at line "+this.line+", index "+this.index));
-    };
+    this._stringOpen = null;
+};
 
-    /**
-     * Gets the next token and advances by one.
-     * @return {?string} Token or `null` on EOF
-     * @throws {Error} If it's not a valid proto file
-     * @expose
-     */
-    Tokenizer.prototype.next = function() {
-        if (this.stack.length > 0) {
-            return this.stack.shift();
-        }
-        if (this.index >= this.source.length) {
-            return null; // No more tokens
-        }
-        if (this.readingString) {
-            this.readingString = false;
-            return this._readString();
-        }
-        var repeat, last;
-        do {
-            repeat = false;
-            // Strip white spaces
-            while (Lang.WHITESPACE.test(last = this.source.charAt(this.index))) {
-                this.index++;
-                if (last === "\n") this.line++;
-                if (this.index === this.source.length) return null;
-            }
-            // Strip comments
-            if (this.source.charAt(this.index) === '/') {
-                if (this.source.charAt(++this.index) === '/') { // Single line
-                    while (this.source.charAt(this.index) !== "\n") {
-                        this.index++;
-                        if (this.index == this.source.length) return null;
-                    }
-                    this.index++;
-                    this.line++;
-                    repeat = true;
-                } else if (this.source.charAt(this.index) === '*') { /* Block */
-                    last = '';
-                    while (last+(last=this.source.charAt(this.index)) !== '*/') {
-                        this.index++;
-                        if (last === "\n") this.line++;
-                        if (this.index === this.source.length) return null;
-                    }
-                    this.index++;
-                    repeat = true;
-                } else {
-                    throw(new Error("Invalid comment at line "+this.line+": /"+this.source.charAt(this.index)+" ('/' or '*' expected)"));
-                }
-            }
-        } while (repeat);
-        if (this.index === this.source.length) return null;
+/**
+ * @alias ProtoBuf.DotProto.Tokenizer.prototype
+ * @inner
+ */
+var TokenizerPrototype = Tokenizer.prototype;
 
-        // Read the next token
-        var end = this.index;
-        Lang.DELIM.lastIndex = 0;
-        var delim = Lang.DELIM.test(this.source.charAt(end));
-        if (!delim) {
-            end++;
-            while(end < this.source.length && !Lang.DELIM.test(this.source.charAt(end))) {
-                end++;
-            }
-        } else {
-            end++;
-        }
-        var token = this.source.substring(this.index, this.index = end);
-        if (token === Lang.STRINGOPEN) {
-            this.readingString = true;
-            this.stringEndsWith = Lang.STRINGCLOSE;
-        } else if (token === Lang.STRINGOPEN_SQ) {
-            this.readingString = true;
-            this.stringEndsWith = Lang.STRINGCLOSE_SQ;
-        }
-        return token;
-    };
+/**
+ * Reads a string beginning at the current index.
+ * @return {string}
+ * @private
+ */
+TokenizerPrototype._readString = function() {
+    var re = this._stringOpen === '"'
+        ? Lang.STRING_DQ
+        : Lang.STRING_SQ;
+    re.lastIndex = this.index - 1; // Include the open quote
+    var match = re.exec(this.source);
+    if (!match)
+        throw Error("unterminated string");
+    this.index = re.lastIndex;
+    this.stack.push(this._stringOpen);
+    this._stringOpen = null;
+    return match[1];
+};
 
-    /**
-     * Peeks for the next token.
-     * @return {?string} Token or `null` on EOF
-     * @throws {Error} If it's not a valid proto file
-     * @expose
-     */
-    Tokenizer.prototype.peek = function() {
-        if (this.stack.length === 0) {
-            var token = this.next();
-            if (token === null) return null;
-            this.stack.push(token);
-        }
-        return this.stack[0];
-    };
+/**
+ * Gets the next token and advances by one.
+ * @return {?string} Token or `null` on EOF
+ * @expose
+ */
+TokenizerPrototype.next = function() {
+    if (this.stack.length > 0)
+        return this.stack.shift();
+    if (this.index >= this.source.length)
+        return null;
+    if (this._stringOpen !== null)
+        return this._readString();
 
-    /**
-     * Returns a string representation of this object.
-     * @return {string} String representation as of "Tokenizer(index/length)"
-     * @expose
-     */
-    Tokenizer.prototype.toString = function() {
-        return "Tokenizer("+this.index+"/"+this.source.length+" at line "+this.line+")";
-    };
-    
-    return Tokenizer;
-    
-})(ProtoBuf.Lang);
+    var repeat,
+        prev,
+        next;
+    do {
+        repeat = false;
+
+        // Strip white spaces
+        while (Lang.WHITESPACE.test(next = this.source.charAt(this.index))) {
+            if (next === '\n')
+                ++this.line;
+            if (++this.index === this.source.length)
+                return null;
+        }
+
+        // Strip comments
+        if (this.source.charAt(this.index) === '/') {
+            ++this.index;
+            if (this.source.charAt(this.index) === '/') { // Line
+                while (this.source.charAt(++this.index) !== '\n')
+                    if (this.index == this.source.length)
+                        return null;
+                ++this.index;
+                ++this.line;
+                repeat = true;
+            } else if ((next = this.source.charAt(this.index)) === '*') { /* Block */
+                do {
+                    if (next === '\n')
+                        ++this.line;
+                    if (++this.index === this.source.length)
+                        return null;
+                    prev = next;
+                    next = this.source.charAt(this.index);
+                } while (prev !== '*' || next !== '/');
+                ++this.index;
+                repeat = true;
+            } else
+                return '/';
+        }
+    } while (repeat);
+
+    if (this.index === this.source.length)
+        return null;
+
+    // Read the next token
+    var end = this.index;
+    Lang.DELIM.lastIndex = 0;
+    var delim = Lang.DELIM.test(this.source.charAt(end++));
+    if (!delim)
+        while(end < this.source.length && !Lang.DELIM.test(this.source.charAt(end)))
+            ++end;
+    var token = this.source.substring(this.index, this.index = end);
+    if (token === '"' || token === "'")
+        this._stringOpen = token;
+    return token;
+};
+
+/**
+ * Peeks for the next token.
+ * @return {?string} Token or `null` on EOF
+ * @expose
+ */
+TokenizerPrototype.peek = function() {
+    if (this.stack.length === 0) {
+        var token = this.next();
+        if (token === null)
+            return null;
+        this.stack.push(token);
+    }
+    return this.stack[0];
+};
+
+/**
+ * Skips a specific token and throws if it differs.
+ * @param {string} expected Expected token
+ * @throws {Error} If the actual token differs
+ */
+TokenizerPrototype.skip = function(expected) {
+    var actual = this.next();
+    if (actual !== expected)
+        throw Error("illegal '"+actual+"', '"+expected+"' expected");
+};
+
+/**
+ * Omits an optional token.
+ * @param {string} expected Expected optional token
+ * @returns {boolean} `true` if the token exists
+ */
+TokenizerPrototype.omit = function(expected) {
+    if (this.peek() === expected) {
+        this.next();
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Returns a string representation of this object.
+ * @return {string} String representation as of "Tokenizer(index/length)"
+ * @expose
+ */
+TokenizerPrototype.toString = function() {
+    return "Tokenizer ("+this.index+"/"+this.source.length+" at line "+this.line+")";
+};
